@@ -1,0 +1,6 @@
+{
+  "name": "SHEFA AYIN — Living Intelligence",
+  "description": "Central avançada de inteligência artificial viva com núcleo neural 3D AYIN CORE, interação por voz, 11 agentes autônomos 24/7 e soberania Master Owner.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
