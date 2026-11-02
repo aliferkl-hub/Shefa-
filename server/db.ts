@@ -21,7 +21,10 @@ import {
   ServiceContract,
   FlagshipProduct,
   CommercialProposal,
-  CommercialPartner
+  CommercialPartner,
+  DevProject,
+  SupportTicket,
+  AgentInteraction
 } from './types.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -48,6 +51,9 @@ export interface DatabaseSchema {
   governance: EngineGovernanceSettings;
   finances: FinancialRecord[];
   auditLogs: AuditLog[];
+  projects: DevProject[];
+  supportTickets: SupportTicket[];
+  agentInteractions: AgentInteraction[];
   sessions: { token: string; userId: string; expiresAt: string }[];
 }
 
@@ -1021,6 +1027,146 @@ function getInitialData(): DatabaseSchema {
     hash: crypto.createHash('sha256').update('INIT_BUSINESS_ENGINE_HYBRID_2026').digest('hex')
   };
 
+  const initialProjects: DevProject[] = [
+    {
+      id: 'proj_vertice_omnichannel',
+      companyId: 'comp_vertice_tech',
+      companyName: 'Vértice Tech Soluções',
+      serviceContractId: 'contract_001',
+      title: 'Implantação Omnichannel do Motor Neural AYIN SALES',
+      description: 'Integração completa do pipeline comercial e qualificação autônoma de leads via WhatsApp e CRM corporativo.',
+      assignedAgentCodename: 'SALES AGENT',
+      status: 'IN_DEVELOPMENT',
+      tasks: [
+        {
+          id: 'task_001',
+          title: 'Mapeamento de jornada e regras de qualificação de leads',
+          description: 'Definir critérios BANT para qualificação automática no Lead Agent.',
+          status: 'completed',
+          assignedAgent: 'LEAD AGENT',
+          deadline: '2026-11-05',
+          completedAt: '2026-11-03T14:20:00Z'
+        },
+        {
+          id: 'task_002',
+          title: 'Configuração do webhook bancário Pix para liberação instantânea',
+          description: 'Testar endpoint autenticado com chave secreta HMAC e idempotência de txId.',
+          status: 'in_progress',
+          assignedAgent: 'FINANCE AGENT',
+          deadline: '2026-11-08'
+        },
+        {
+          id: 'task_003',
+          title: 'Homologação assistida e treinamento da equipe de vendas',
+          description: 'Validação final de aceite pelo cliente Vértice Tech.',
+          status: 'pending',
+          assignedAgent: 'CUSTOMER AGENT',
+          deadline: '2026-11-12'
+        }
+      ],
+      deadline: '2026-11-15',
+      clientApprovalStatus: 'PENDING',
+      createdAt: '2026-11-01T10:00:00Z',
+      updatedAt: '2026-11-03T14:20:00Z'
+    },
+    {
+      id: 'proj_aurora_custom_ai',
+      companyId: 'comp_aurora_sa',
+      companyName: 'Aurora Logística Global',
+      title: 'Automação Tática de Roteirização e Atendimento com AYIN CORE',
+      description: 'Desenvolvimento e ajuste fino de persona logística com base de conhecimento privativa.',
+      assignedAgentCodename: 'CREATIVE AGENT',
+      status: 'PLANNING',
+      tasks: [
+        {
+          id: 'task_aurora_01',
+          title: 'Estruturação da Base de Conhecimento RAG com manuais operacionais',
+          status: 'in_progress',
+          assignedAgent: 'REPORT AGENT',
+          deadline: '2026-11-10'
+        }
+      ],
+      deadline: '2026-11-20',
+      clientApprovalStatus: 'PENDING',
+      createdAt: '2026-11-02T08:00:00Z',
+      updatedAt: '2026-11-02T08:00:00Z'
+    }
+  ];
+
+  const initialSupportTickets: SupportTicket[] = [
+    {
+      id: 'ticket_vertice_001',
+      companyId: 'comp_vertice_tech',
+      companyName: 'Vértice Tech Soluções',
+      customerEmail: 'contato@verticecorp.com.br',
+      subject: 'Ajuste de persona e tom de voz no AYIN SALES',
+      description: 'Gostaríamos de calibrar o assistente de vendas para um tom mais corporativo e consultivo no segmento B2B SaaS.',
+      priority: 'HIGH',
+      status: 'IN_PROGRESS',
+      category: 'AGENT_TUNING',
+      assignedAgent: 'CUSTOMER AGENT',
+      communicationHistory: [
+        {
+          id: 'msg_001',
+          senderEmail: 'contato@verticecorp.com.br',
+          senderName: 'Diretoria Vértice Tech',
+          senderRole: 'CLIENT',
+          message: 'Prezados, gostaríamos de ajustar o prompt da persona para incluir terminologia técnica de infraestrutura em nuvem.',
+          timestamp: '2026-11-02T11:00:00Z'
+        },
+        {
+          id: 'msg_002',
+          senderEmail: 'customer.agent@shefa-ayin.io',
+          senderName: 'Customer Success Agent (SHEFA AYIN)',
+          senderRole: 'AGENT',
+          message: 'Perfeito! O CREATIVE AGENT e o LEAD AGENT recalibraram os parâmetros de síntese. A nova persona já está em produção.',
+          timestamp: '2026-11-02T11:30:00Z'
+        }
+      ],
+      createdAt: '2026-11-02T11:00:00Z',
+      updatedAt: '2026-11-02T11:30:00Z'
+    }
+  ];
+
+  const initialInteractions: AgentInteraction[] = [
+    {
+      id: 'interaction_001',
+      timestamp: '2026-11-02T09:15:00Z',
+      fromAgent: 'RADAR AGENT',
+      toAgent: 'LEAD AGENT',
+      actionType: 'MARKET_RADAR_OPPORTUNITY',
+      subject: 'Detecção de oportunidade corporativa: demanda de IA em infraestrutura',
+      payload: { sector: 'Saúde & Diagnóstico', marketScore: 94, estimatedAnnualBudget: 180000 },
+      verifiableOutput: '3 prospects corporativos indexados e transferidos para estruturação de cadência comercial.',
+      status: 'PROCESSED',
+      isSensitive: false
+    },
+    {
+      id: 'interaction_002',
+      timestamp: '2026-11-02T10:00:00Z',
+      fromAgent: 'LEAD AGENT',
+      toAgent: 'SALES AGENT',
+      actionType: 'LEAD_QUALIFICATION_HANDOFF',
+      subject: 'Handoff de lead qualificado com score 89/100 (Grupo Hospitalar San Raphael)',
+      payload: { leadId: 'lead_002', company: 'Grupo Hospitalar San Raphael', planSuggested: 'Infinity Enterprise' },
+      verifiableOutput: 'Proposta comercial pré-gerada no CRM com cotação de implantação dedicada.',
+      status: 'PROCESSED',
+      isSensitive: false
+    },
+    {
+      id: 'interaction_003',
+      timestamp: '2026-11-02T10:30:00Z',
+      fromAgent: 'SALES AGENT',
+      toAgent: 'FINANCE AGENT',
+      actionType: 'SALES_PROPOSAL_DISPATCH',
+      subject: 'Solicitação de emissão de cobrança Pix e homologação de contrato comercial',
+      payload: { proposalId: 'prop_002', amount: 8900, termMonths: 12 },
+      verifiableOutput: 'QR Code e payload EMV padrão BACEN emitidos para cobrança sob chave 11973479473.',
+      status: 'PROCESSED',
+      isSensitive: false
+    }
+  ];
+
   return {
     users: [masterUser, clientUser, clientUser2],
     companies,
@@ -1042,6 +1188,9 @@ function getInitialData(): DatabaseSchema {
     governance,
     finances,
     auditLogs: [genesisLog],
+    projects: initialProjects,
+    supportTickets: initialSupportTickets,
+    agentInteractions: initialInteractions,
     sessions: []
   };
 }
@@ -1082,6 +1231,9 @@ class Database {
           governance: parsed.governance || initial.governance,
           finances: parsed.finances || initial.finances,
           auditLogs: parsed.auditLogs || initial.auditLogs,
+          projects: parsed.projects && parsed.projects.length ? parsed.projects : initial.projects,
+          supportTickets: parsed.supportTickets && parsed.supportTickets.length ? parsed.supportTickets : initial.supportTickets,
+          agentInteractions: parsed.agentInteractions && parsed.agentInteractions.length ? parsed.agentInteractions : initial.agentInteractions,
           sessions: parsed.sessions || []
         };
 

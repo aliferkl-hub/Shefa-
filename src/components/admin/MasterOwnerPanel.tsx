@@ -13,7 +13,10 @@ import {
   CommercialProposal,
   CommercialPartner,
   Subscription,
-  PixCharge
+  PixCharge,
+  DevProject,
+  SupportTicket,
+  AgentInteraction
 } from '../../types/index.ts';
 import { 
   Shield, 
@@ -41,7 +44,9 @@ import {
   Users,
   Target,
   Percent,
-  Check
+  Check,
+  MessageSquare,
+  Network
 } from 'lucide-react';
 import { api } from '../../services/api.ts';
 import { livingAudio } from '../../services/livingAudio.ts';
@@ -68,7 +73,7 @@ export const MasterOwnerPanel: React.FC<MasterOwnerPanelProps> = ({
   onClose
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'sovereignty' | 'companies' | 'plans' | 'services' | 'subscriptions' | 'finance' | 'crm' | 'approvals' | 'audit' | 'security'
+    'sovereignty' | 'companies' | 'plans' | 'services' | 'subscriptions' | 'finance' | 'crm' | 'projects' | 'support' | 'agent_network' | 'approvals' | 'audit' | 'security'
   >('sovereignty');
   
   // Governance & Emergency Engine State
@@ -85,6 +90,11 @@ export const MasterOwnerPanel: React.FC<MasterOwnerPanelProps> = ({
   const [proposals, setProposals] = useState<CommercialProposal[]>([]);
   const [partners, setPartners] = useState<CommercialPartner[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [projects, setProjects] = useState<DevProject[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [agentInteractions, setAgentInteractions] = useState<AgentInteraction[]>([]);
+  const [isRunningAgentCycle, setIsRunningAgentCycle] = useState(false);
+  const [agentCycleSummary, setAgentCycleSummary] = useState<string | null>(null);
 
   // Editing state for plans
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
@@ -113,14 +123,17 @@ export const MasterOwnerPanel: React.FC<MasterOwnerPanelProps> = ({
   // Load secondary collections
   const loadMasterData = async () => {
     try {
-      const [govRes, plansRes, srvRes, ctrRes, propRes, prtRes, subRes] = await Promise.all([
+      const [govRes, plansRes, srvRes, ctrRes, propRes, prtRes, subRes, projRes, tickRes, intRes] = await Promise.all([
         api.getGovernance().catch(() => null),
         api.getPlans().catch(() => []),
         api.getServices().catch(() => []),
         api.getServiceContracts().catch(() => []),
         api.getProposals().catch(() => []),
         api.getPartners().catch(() => []),
-        api.getSubscriptions().catch(() => [])
+        api.getSubscriptions().catch(() => []),
+        api.getProjects().catch(() => []),
+        api.getSupportTickets().catch(() => []),
+        api.getAgentInteractions().catch(() => [])
       ]);
 
       if (govRes) {
@@ -133,6 +146,9 @@ export const MasterOwnerPanel: React.FC<MasterOwnerPanelProps> = ({
       setProposals(propRes);
       setPartners(prtRes);
       setSubscriptions(subRes);
+      setProjects(projRes);
+      setSupportTickets(tickRes);
+      setAgentInteractions(intRes);
     } catch (err) {
       console.error('Error loading Master Owner data:', err);
     }
@@ -273,6 +289,33 @@ export const MasterOwnerPanel: React.FC<MasterOwnerPanelProps> = ({
     }
   };
 
+  const handleRunAgentCycle = async () => {
+    setIsRunningAgentCycle(true);
+    setAgentCycleSummary(null);
+    try {
+      const res = await api.runInterAgentCycle();
+      setAgentCycleSummary(res.summary);
+      livingAudio.speak('Ciclo de colaboração multiagente executado com 11 trocas táticas entre departamentos.');
+      loadMasterData();
+      onRefreshData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao rodar ciclo dos 11 agentes.');
+    } finally {
+      setIsRunningAgentCycle(false);
+    }
+  };
+
+  const handleApproveInteraction = async (interactionId: string) => {
+    try {
+      await api.approveAgentInteraction(interactionId);
+      loadMasterData();
+      onRefreshData();
+      alert('Ação inter-agente autorizada pelo Master Owner.');
+    } catch (err: any) {
+      alert(err.message || 'Erro ao aprovar interação.');
+    }
+  };
+
   const handleCreateCompany = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!companyName.trim() || !companyCnpj.trim()) return;
@@ -408,6 +451,33 @@ export const MasterOwnerPanel: React.FC<MasterOwnerPanelProps> = ({
             }`}
           >
             CRM & Parceiros
+          </button>
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'projects' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Projetos Dev ({projects.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('support')}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'support' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Suporte & CS ({supportTickets.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('agent_network')}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1 ${
+              activeTab === 'agent_network' ? 'bg-amber-600 text-white font-bold' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>Rede 11 Agentes</span>
+            <span className="px-1.5 py-0.2 bg-purple-950 text-purple-300 border border-purple-500/40 rounded text-[9px] font-mono-numbers">
+              {agentInteractions.length}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('approvals')}
@@ -1346,6 +1416,328 @@ export const MasterOwnerPanel: React.FC<MasterOwnerPanelProps> = ({
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: PROJETOS DE DESENVOLVIMENTO CORPORATIVO (Phase 01) */}
+          {activeTab === 'projects' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pb-3 border-b border-purple-900/20">
+                <div>
+                  <h3 className="text-sm font-cinzel font-bold text-white flex items-center gap-2">
+                    <Briefcase className="w-4 h-4 text-amber-400" />
+                    <span>Gestão Central de Projetos de Desenvolvimento & Entregas</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-light mt-0.5">
+                    Controle de implantações, tarefas por agentes, prazos de entrega e homologação formal de clientes.
+                  </p>
+                </div>
+                <span className="text-xs font-mono-numbers px-3 py-1 glass-obsidian border border-purple-900/30 rounded text-amber-300">
+                  {projects.length} Projetos Totais
+                </span>
+              </div>
+
+              {projects.length === 0 ? (
+                <div className="p-12 text-center glass-obsidian rounded-xl border border-purple-900/20 text-slate-400 text-xs">
+                  Nenhum projeto registrado no sistema.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {projects.map((proj) => {
+                    const doneCount = proj.tasks.filter(t => t.status === 'completed').length;
+                    const totalCount = proj.tasks.length || 1;
+                    const pct = Math.round((doneCount / totalCount) * 100);
+
+                    return (
+                      <div
+                        key={proj.id}
+                        className="p-5 bg-[#05050a] rounded-xl border border-purple-900/30 space-y-4 hover:border-purple-600/40 transition-colors"
+                      >
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-500/30 uppercase font-mono-numbers">
+                                {proj.companyName}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                                proj.status === 'DELIVERED'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                                  : proj.status === 'CLIENT_APPROVAL'
+                                  ? 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                                  : 'bg-purple-950 text-purple-300 border border-purple-500/40'
+                              }`}>
+                                {proj.status}
+                              </span>
+                              <span className="text-xs text-slate-400 font-mono-numbers">
+                                Limite: {proj.deadline}
+                              </span>
+                            </div>
+                            <h4 className="text-sm font-semibold text-white">{proj.title}</h4>
+                            <p className="text-xs text-slate-300 font-light mt-0.5">{proj.description}</p>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="text-xs font-bold font-mono-numbers text-amber-400">{pct}% Concluído</span>
+                            <span className="text-[10px] text-slate-500 block font-mono-numbers">
+                              {doneCount}/{totalCount} tarefas
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Task List */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 pt-2 border-t border-purple-900/20">
+                          {proj.tasks.map((task) => (
+                            <div
+                              key={task.id}
+                              className={`p-2.5 rounded-lg border text-xs flex items-center justify-between ${
+                                task.status === 'completed'
+                                  ? 'bg-emerald-950/20 border-emerald-900/30 text-emerald-200'
+                                  : task.status === 'in_progress'
+                                  ? 'bg-amber-950/20 border-amber-900/30 text-amber-200'
+                                  : 'bg-[#07070f] border-purple-900/20 text-slate-400'
+                              }`}
+                            >
+                              <div>
+                                <span className="font-medium text-white block">{task.title}</span>
+                                <span className="text-[10px] text-slate-400">
+                                  {task.assignedAgent} · {task.deadline}
+                                </span>
+                              </div>
+                              <span className="text-[9px] uppercase font-mono-numbers font-bold">
+                                {task.status}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-purple-900/10">
+                          <span>
+                            Aceite do Cliente: <strong className="text-amber-300">{proj.clientApprovalStatus}</strong>
+                            {proj.clientFeedback && ` · "${proj.clientFeedback}"`}
+                          </span>
+                          {proj.deliveredAt && (
+                            <span className="text-emerald-400 font-mono-numbers text-[11px]">
+                              Entregue em {new Date(proj.deliveredAt).toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: SUPORTE & CUSTOMER SUCCESS (Phase 01) */}
+          {activeTab === 'support' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between pb-3 border-b border-purple-900/20">
+                <div>
+                  <h3 className="text-sm font-cinzel font-bold text-white flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-amber-400" />
+                    <span>Central Soberana de Suporte & Customer Success</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-light mt-0.5">
+                    Monitoramento de chamados corporativos, históricos de mensagens e resolução de demandas de clientes.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs font-mono-numbers">
+                  <span className="px-2.5 py-1 bg-amber-950 text-amber-300 border border-amber-500/30 rounded">
+                    {supportTickets.filter(t => t.status === 'OPEN' || t.status === 'IN_PROGRESS').length} Abertos
+                  </span>
+                  <span className="px-2.5 py-1 bg-emerald-950 text-emerald-300 border border-emerald-500/30 rounded">
+                    {supportTickets.filter(t => t.status === 'RESOLVED' || t.status === 'CLOSED').length} Resolvidos
+                  </span>
+                </div>
+              </div>
+
+              {supportTickets.length === 0 ? (
+                <div className="p-12 text-center glass-obsidian rounded-xl border border-purple-900/20 text-slate-400 text-xs">
+                  Nenhum chamado de suporte registrado.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {supportTickets.map((ticket) => (
+                    <div
+                      key={ticket.id}
+                      className="p-5 bg-[#05050a] rounded-xl border border-purple-900/30 space-y-3"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-500/30 font-mono-numbers uppercase">
+                              {ticket.companyName}
+                            </span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-500/30 uppercase">
+                              {ticket.category}
+                            </span>
+                            <span className="text-xs text-slate-400 font-mono-numbers">
+                              Prioridade: {ticket.priority} · {new Date(ticket.createdAt).toLocaleDateString('pt-BR')}
+                            </span>
+                          </div>
+                          <h4 className="text-sm font-semibold text-white">{ticket.subject}</h4>
+                          <p className="text-xs text-slate-300 font-light mt-0.5">{ticket.description}</p>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-xs font-bold px-3 py-1 rounded uppercase ${
+                            ticket.status === 'RESOLVED' || ticket.status === 'CLOSED'
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-amber-950 text-amber-300 border border-amber-500/40'
+                          }`}>
+                            {ticket.status}
+                          </span>
+                          {ticket.status !== 'RESOLVED' && (
+                            <button
+                              onClick={async () => {
+                                await api.updateTicketStatus(ticket.id, 'RESOLVED');
+                                loadMasterData();
+                                onRefreshData();
+                              }}
+                              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold cursor-pointer transition-colors"
+                            >
+                              Resolver
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Messages Thread preview */}
+                      <div className="space-y-2 pt-2 border-t border-purple-900/20 max-h-48 overflow-y-auto pr-1">
+                        {ticket.communicationHistory.map((m) => (
+                          <div
+                            key={m.id}
+                            className={`p-2.5 rounded-lg text-xs space-y-0.5 ${
+                              m.senderRole === 'CLIENT'
+                                ? 'bg-black/60 border border-slate-800 text-slate-300'
+                                : 'bg-purple-950/40 border border-purple-900/30 text-purple-200'
+                            }`}
+                          >
+                            <div className="flex justify-between text-[10px] text-slate-400">
+                              <span className="font-semibold text-white">{m.senderName} ({m.senderRole})</span>
+                              <span>{new Date(m.timestamp).toLocaleTimeString('pt-BR')}</span>
+                            </div>
+                            <p className="font-light">{m.message}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: REDE INTER-AGENTES 11 & COLABORAÇÃO (Phase 01) */}
+          {activeTab === 'agent_network' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-purple-900/20 gap-3">
+                <div>
+                  <h3 className="text-sm font-cinzel font-bold text-white flex items-center gap-2">
+                    <Network className="w-4 h-4 text-amber-400" />
+                    <span>Constelação dos 11 Agentes Autônomos & Barramento Inter-Agentes</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 font-light mt-0.5">
+                    Fluxo contínuo de tarefas estruturadas: RADAR → LEAD → SALES → FINANCE → SUBSCRIPTION → CUSTOMER → MARKETING → CREATIVE → MARKET → ANALYTICS → REPORT.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleRunAgentCycle}
+                  disabled={isRunningAgentCycle}
+                  className="px-5 py-2.5 bg-gradient-to-r from-amber-600 via-amber-700 to-purple-800 hover:from-amber-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-lg shadow-amber-900/30 flex items-center gap-2 disabled:opacity-50 shrink-0"
+                >
+                  <Zap className={`w-4 h-4 ${isRunningAgentCycle ? 'animate-spin' : ''}`} />
+                  <span>{isRunningAgentCycle ? 'Processando Ciclo...' : 'Disparar Rodada dos 11 Agentes'}</span>
+                </button>
+              </div>
+
+              {agentCycleSummary && (
+                <div className="p-3 bg-emerald-950/80 border border-emerald-500/50 rounded-xl text-emerald-200 text-xs flex items-center gap-2 animate-fade-in">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{agentCycleSummary}</span>
+                </div>
+              )}
+
+              {/* 11 Agents Status Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                {[
+                  { name: 'RADAR AGENT', role: 'Varredura & Oportunidades', color: 'text-amber-400' },
+                  { name: 'LEAD AGENT', role: 'Qualificação & BANT', color: 'text-emerald-400' },
+                  { name: 'SALES AGENT', role: 'Propostas & Negociação', color: 'text-purple-400' },
+                  { name: 'FINANCE AGENT', role: 'Cobrança Pix & DRE', color: 'text-amber-300' },
+                  { name: 'SUBSCRIPTION AGENT', role: 'Auditoria de Planos & Cotas', color: 'text-blue-400' },
+                  { name: 'CUSTOMER AGENT', role: 'Onboarding & CS 24/7', color: 'text-emerald-300' },
+                  { name: 'MARKETING AGENT', role: 'Campanhas & Pautas', color: 'text-rose-400' },
+                  { name: 'CREATIVE AGENT', role: 'Copies & Visual Obsidian', color: 'text-purple-300' },
+                  { name: 'MARKET AGENT', role: 'Benchmarking Concorrentes', color: 'text-cyan-400' },
+                  { name: 'ANALYTICS AGENT', role: 'Métricas Reais & Margens', color: 'text-amber-400' },
+                  { name: 'REPORT AGENT', role: 'Dossiê Executivo Master', color: 'text-white' }
+                ].map((item, idx) => (
+                  <div key={idx} className="p-3 glass-obsidian rounded-xl border border-purple-900/30 text-xs space-y-1">
+                    <span className={`font-bold block ${item.color}`}>{item.name}</span>
+                    <span className="text-[10px] text-slate-400 block line-clamp-1">{item.role}</span>
+                    <div className="flex items-center gap-1 text-[9px] text-emerald-400 font-mono-numbers pt-1 border-t border-purple-900/10">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>Operacional 24/7</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Inter-Agent Collaboration Bus Logs */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-300 uppercase tracking-wider">
+                    Log Estruturado de Handoffs & Mensageria Inter-Agentes
+                  </span>
+                  <span className="text-slate-500 font-mono-numbers">{agentInteractions.length} Registros</span>
+                </div>
+
+                <div className="space-y-2.5 max-h-[460px] overflow-y-auto pr-1">
+                  {agentInteractions.slice().reverse().map((int) => (
+                    <div
+                      key={int.id}
+                      className="p-4 bg-[#05050a] rounded-xl border border-purple-900/30 space-y-2 hover:border-purple-600/40 transition-colors"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1 font-mono-numbers">
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-400 font-bold">{int.fromAgent}</span>
+                          <span className="text-slate-500">→</span>
+                          <span className="text-purple-300 font-bold">{int.toAgent}</span>
+                          <span className="text-[10px] px-2 py-0.2 bg-purple-950 border border-purple-900 rounded text-slate-300">
+                            {int.actionType}
+                          </span>
+                        </div>
+                        <span className="text-slate-500 text-[11px]">
+                          {new Date(int.timestamp).toLocaleTimeString('pt-BR')}
+                        </span>
+                      </div>
+
+                      <h5 className="text-xs font-semibold text-white">{int.subject}</h5>
+                      <p className="text-xs text-slate-300 font-light leading-relaxed bg-black/40 p-2.5 rounded-lg border border-purple-900/20">
+                        {int.verifiableOutput}
+                      </p>
+
+                      <div className="flex items-center justify-between text-[11px] pt-1 text-slate-500 font-mono-numbers">
+                        <span>Status: <strong className={int.status === 'PROCESSED' ? 'text-emerald-400' : 'text-amber-400'}>{int.status}</strong></span>
+                        {int.isSensitive && int.status === 'AWAITING_MASTER_APPROVAL' && (
+                          <button
+                            onClick={() => handleApproveInteraction(int.id)}
+                            className="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-bold cursor-pointer"
+                          >
+                            Autorizar Ação Master
+                          </button>
+                        )}
+                        {int.masterApprovedBy && (
+                          <span className="text-amber-300">Autorizado por: {int.masterApprovedBy}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

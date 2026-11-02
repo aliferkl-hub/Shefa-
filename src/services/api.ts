@@ -21,7 +21,11 @@ import {
   FlagshipProduct,
   CommercialProposal,
   CommercialPartner,
-  LeadStage
+  LeadStage,
+  DevProject,
+  DevProjectTask,
+  SupportTicket,
+  AgentInteraction
 } from '../types/index.ts';
 
 const TOKEN_KEY = 'shefa_token';
@@ -518,6 +522,115 @@ export const api = {
   async getSystemStats(): Promise<SystemStats> {
     const res = await fetch('/api/system/stats', { headers: getHeaders() });
     if (!res.ok) throw new Error('Erro ao obter estatísticas do observatório.');
+    return res.json();
+  },
+
+  // Development & Projects Delivery Workflow
+  async getProjects(): Promise<DevProject[]> {
+    const res = await fetch('/api/projects', { headers: getHeaders() });
+    if (!res.ok) throw new Error('Erro ao listar projetos de desenvolvimento.');
+    return res.json();
+  },
+
+  async createProject(payload: Partial<DevProject>): Promise<DevProject> {
+    const res = await fetch('/api/projects', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Erro ao registrar projeto de desenvolvimento.');
+    return res.json();
+  },
+
+  async updateProjectTask(projectId: string, taskId: string, payload: Partial<DevProjectTask>): Promise<{ project: DevProject; task: DevProjectTask }> {
+    const res = await fetch(`/api/projects/${projectId}/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Erro ao atualizar tarefa do projeto.');
+    return res.json();
+  },
+
+  async approveProject(projectId: string, feedback?: string): Promise<{ success: boolean; project: DevProject }> {
+    const res = await fetch(`/api/projects/${projectId}/approve`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ feedback })
+    });
+    if (!res.ok) throw new Error('Erro ao aprovar entrega do projeto.');
+    return res.json();
+  },
+
+  async requestProjectChanges(projectId: string, feedback: string): Promise<{ success: boolean; project: DevProject }> {
+    const res = await fetch(`/api/projects/${projectId}/request-changes`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ feedback })
+    });
+    if (!res.ok) throw new Error('Erro ao solicitar ajustes no projeto.');
+    return res.json();
+  },
+
+  // Customer Success & Support Tickets
+  async getSupportTickets(): Promise<SupportTicket[]> {
+    const res = await fetch('/api/support/tickets', { headers: getHeaders() });
+    if (!res.ok) throw new Error('Erro ao obter chamados de suporte.');
+    return res.json();
+  },
+
+  async createSupportTicket(payload: Partial<SupportTicket>): Promise<SupportTicket> {
+    const res = await fetch('/api/support/tickets', {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('Erro ao abrir chamado de suporte.');
+    return res.json();
+  },
+
+  async addTicketMessage(ticketId: string, message: string): Promise<{ success: boolean; ticket: SupportTicket }> {
+    const res = await fetch(`/api/support/tickets/${ticketId}/messages`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ message })
+    });
+    if (!res.ok) throw new Error('Erro ao enviar mensagem no chamado.');
+    return res.json();
+  },
+
+  async updateTicketStatus(ticketId: string, status: string, satisfactionRating?: number): Promise<{ success: boolean; ticket: SupportTicket }> {
+    const res = await fetch(`/api/support/tickets/${ticketId}/status`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ status, satisfactionRating })
+    });
+    if (!res.ok) throw new Error('Erro ao atualizar status do chamado.');
+    return res.json();
+  },
+
+  // Autonomous Multi-Agent Collaboration Bus
+  async getAgentInteractions(): Promise<AgentInteraction[]> {
+    const res = await fetch('/api/agents/exchange', { headers: getHeaders() });
+    if (!res.ok) throw new Error('Erro ao obter interações entre agentes.');
+    return res.json();
+  },
+
+  async runInterAgentCycle(): Promise<{ cycleId: string; interactionsCreated: AgentInteraction[]; summary: string }> {
+    const res = await fetch('/api/agents/exchange/run-cycle', {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Erro ao executar ciclo multiagente.');
+    return res.json();
+  },
+
+  async approveAgentInteraction(interactionId: string): Promise<{ success: boolean; interaction: AgentInteraction }> {
+    const res = await fetch(`/api/agents/exchange/${interactionId}/approve`, {
+      method: 'POST',
+      headers: getHeaders()
+    });
+    if (!res.ok) throw new Error('Erro ao autorizar ação do agente.');
     return res.json();
   }
 };

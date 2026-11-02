@@ -397,6 +397,89 @@ export interface AuditLog {
   hash: string;
 }
 
+export interface DevProjectTask {
+  id: string;
+  title: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  assignedAgent: string;
+  deadline: string;
+  completedAt?: string;
+}
+
+export interface DevProject {
+  id: string;
+  companyId: string;
+  companyName: string;
+  serviceContractId?: string;
+  title: string;
+  description: string;
+  assignedAgentCodename: string;
+  status: 'PLANNING' | 'IN_DEVELOPMENT' | 'REVIEW' | 'CLIENT_APPROVAL' | 'DELIVERED';
+  tasks: DevProjectTask[];
+  deadline: string;
+  clientApprovalStatus: 'PENDING' | 'APPROVED' | 'CHANGES_REQUESTED';
+  clientFeedback?: string;
+  deliveredAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SupportTicketMessage {
+  id: string;
+  senderEmail: string;
+  senderName: string;
+  senderRole: 'CLIENT' | 'AGENT' | 'MASTER_OWNER';
+  message: string;
+  timestamp: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  companyId: string;
+  companyName: string;
+  customerEmail: string;
+  subject: string;
+  description: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+  category: 'ONBOARDING' | 'TECHNICAL' | 'BILLING' | 'AGENT_TUNING' | 'UPGRADE';
+  assignedAgent: string;
+  communicationHistory: SupportTicketMessage[];
+  satisfactionRating?: number; // 1-5
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
+
+export type InterAgentActionType =
+  | 'MARKET_RADAR_OPPORTUNITY'
+  | 'LEAD_QUALIFICATION_HANDOFF'
+  | 'SALES_PROPOSAL_DISPATCH'
+  | 'FINANCE_PIX_RECONCILIATION'
+  | 'SUBSCRIPTION_QUOTA_ADJUSTMENT'
+  | 'CUSTOMER_ONBOARDING_ALERT'
+  | 'MARKETING_CAMPAIGN_PITCH'
+  | 'CREATIVE_ASSET_DELIVERY'
+  | 'COMPETITOR_BENCHMARK_SYNC'
+  | 'ANALYTICS_METRICS_AUDIT'
+  | 'MASTER_REPORT_COMPILATION';
+
+export interface AgentInteraction {
+  id: string;
+  timestamp: string;
+  fromAgent: AgentRoleType;
+  toAgent: AgentRoleType;
+  actionType: InterAgentActionType;
+  subject: string;
+  payload: Record<string, any>;
+  verifiableOutput: string;
+  status: 'DISPATCHED' | 'PROCESSED' | 'AWAITING_MASTER_APPROVAL';
+  isSensitive: boolean;
+  masterApprovedAt?: string;
+  masterApprovedBy?: string;
+}
+
 export interface SystemStats {
   totalCompanies: number;
   totalAgents: number;
@@ -428,6 +511,14 @@ export interface SystemStats {
   pendingPixCharges: number;
   totalContracts: number;
   activeContracts: number;
+  // New Operational Metrics for Phase 01
+  totalProjects: number;
+  activeProjects: number;
+  deliveredProjects: number;
+  totalSupportTickets: number;
+  openSupportTickets: number;
+  resolvedSupportTickets: number;
+  totalAgentInteractions: number;
   isEmergencyPaused: boolean;
 }
 

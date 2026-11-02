@@ -342,34 +342,43 @@ export default function App() {
               <div className="text-base font-bold font-mono-numbers text-amber-300">
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(stats.mrr || 0)}
               </div>
-              <span className="text-[10px] text-slate-400">{stats.activeSubscriptions || 0} assinaturas ativas</span>
-            </div>
-
-            <div className="p-3.5 glass-obsidian rounded-xl border border-purple-900/20">
-              <span className="text-[11px] uppercase tracking-wider text-slate-400 block mb-0.5">Receita Liquidada</span>
-              <div className="text-base font-bold font-mono-numbers text-emerald-400">
-                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(stats.totalReceivedRevenue || stats.grossRevenue || 0)}
-              </div>
-              <span className="text-[10px] text-slate-400">Pix oficial liquidado</span>
-            </div>
-
-            <div className="p-3.5 glass-obsidian rounded-xl border border-purple-900/20">
-              <span className="text-[11px] uppercase tracking-wider text-slate-400 block mb-0.5">Margem Líquida</span>
-              <div className="text-base font-bold font-mono-numbers text-purple-300">
-                {(stats.netMarginPercent || 0).toFixed(1)}%
-              </div>
-              <span className="text-[10px] text-slate-400">
-                Custos: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(stats.totalCosts || 0)}
+              <span className="text-[10px] text-emerald-400 font-mono-numbers">
+                {stats.activeSubscriptions || 0} ativas · {stats.churnedSubscriptions || 0} churn
               </span>
             </div>
 
             <div className="p-3.5 glass-obsidian rounded-xl border border-purple-900/20">
-              <span className="text-[11px] uppercase tracking-wider text-slate-400 block mb-0.5">Inadimplência</span>
-              <div className={`text-base font-bold font-mono-numbers ${(stats.defaultRate || 0) > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                {(stats.defaultRate || 0).toFixed(1)}%
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[11px] uppercase tracking-wider text-slate-400 block">Receita Pix</span>
+                <span className="text-[9px] px-1.5 py-0.2 bg-emerald-950 text-emerald-300 border border-emerald-500/30 rounded font-mono-numbers">
+                  VERIFICADO
+                </span>
+              </div>
+              <div className="text-base font-bold font-mono-numbers text-emerald-400">
+                {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(stats.realVerifiedPixRevenue > 0 ? stats.realVerifiedPixRevenue : stats.totalReceivedRevenue || 0)}
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono-numbers">
+                Demo: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(stats.seedDemoRevenue || 0)}
+              </span>
+            </div>
+
+            <div className="p-3.5 glass-obsidian rounded-xl border border-purple-900/20">
+              <span className="text-[11px] uppercase tracking-wider text-slate-400 block mb-0.5">Projetos & Dev</span>
+              <div className="text-base font-bold font-mono-numbers text-cyan-400">
+                {stats.activeProjects ?? 2} Ativos
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono-numbers">
+                {stats.deliveredProjects ?? 0} entregues com aceite
+              </span>
+            </div>
+
+            <div className="p-3.5 glass-obsidian rounded-xl border border-purple-900/20">
+              <span className="text-[11px] uppercase tracking-wider text-slate-400 block mb-0.5">Margem Real DRE</span>
+              <div className="text-base font-bold font-mono-numbers text-purple-300">
+                {(stats.realNetMarginPercent || stats.netMarginPercent || 0).toFixed(1)}%
               </div>
               <span className="text-[10px] text-slate-400">
-                {stats.churnedSubscriptions || 0} em atraso
+                Custos: {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(stats.realOperatingCosts || stats.totalCosts || 0)}
               </span>
             </div>
           </div>

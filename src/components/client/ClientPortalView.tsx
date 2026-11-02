@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Company, User, Lead, KnowledgeDoc, AutonomousAgent, Subscription } from '../../types/index.ts';
+import React, { useState, useEffect } from 'react';
+import { Company, User, Lead, KnowledgeDoc, AutonomousAgent, Subscription, DevProject, SupportTicket } from '../../types/index.ts';
 import { 
   Bot, 
   Send, 
@@ -17,7 +17,13 @@ import {
   Briefcase,
   AlertCircle,
   FileText,
-  DollarSign
+  DollarSign,
+  Layers,
+  MessageSquare,
+  Check,
+  AlertTriangle,
+  RotateCcw,
+  CheckCircle
 } from 'lucide-react';
 import { api } from '../../services/api.ts';
 
@@ -51,7 +57,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
   const activeCompany = currentCompany || companies[0];
   const isMaster = currentUser?.role === 'MASTER_OWNER';
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'onboarding' | 'assistant' | 'agents' | 'settings'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'onboarding' | 'projects' | 'support' | 'assistant' | 'agents' | 'settings'>('overview');
   const [chatMessage, setChatMessage] = useState('');
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'model'; text: string }[]>([
     {
@@ -61,12 +67,49 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
   ]);
   const [isSending, setIsSending] = useState(false);
 
+  // Development & Projects state
+  const [projects, setProjects] = useState<DevProject[]>([]);
+  const [feedbackInput, setFeedbackInput] = useState<{ [projectId: string]: string }>({});
+  const [isApprovingProject, setIsApprovingProject] = useState<{ [projectId: string]: boolean }>({});
+
+  // Customer Success & Support state
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [ticketReply, setTicketReply] = useState('');
+  const [isReplying, setIsReplying] = useState(false);
+  const [isNewTicketOpen, setIsNewTicketOpen] = useState(false);
+  const [newTicketSubject, setNewTicketSubject] = useState('');
+  const [newTicketDesc, setNewTicketDesc] = useState('');
+  const [newTicketPriority, setNewTicketPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'>('MEDIUM');
+  const [newTicketCategory, setNewTicketCategory] = useState<'ONBOARDING' | 'TECHNICAL' | 'BILLING' | 'AGENT_TUNING' | 'UPGRADE'>('TECHNICAL');
+  const [isCreatingTicket, setIsCreatingTicket] = useState(false);
+
   // Persona edit states
   const [assistantName, setAssistantName] = useState(activeCompany?.aiPersona.assistantName || '');
   const [assistantTone, setAssistantTone] = useState(activeCompany?.aiPersona.tone || '');
   const [assistantInstructions, setAssistantInstructions] = useState(activeCompany?.aiPersona.instructions || '');
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
+
+  const loadProjectsAndTickets = async () => {
+    try {
+      const [projRes, tickRes] = await Promise.all([
+        api.getProjects().catch(() => []),
+        api.getSupportTickets().catch(() => [])
+      ]);
+      setProjects(projRes);
+      setSupportTickets(tickRes);
+      if (tickRes.length > 0 && !selectedTicketId) {
+        setSelectedTicketId(tickRes[0].id);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar projetos e chamados:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadProjectsAndTickets();
+  }, [activeCompany]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,6 +158,79 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
     }
   };
 
+  const handleApproveProject = async (projectId: string) => {
+    setIsApprovingProject(prev => ({ ...prev, [projectId]: true }));
+    try {
+      const fb = feedbackInput[projectId] || 'Entrega validada com sucesso.';
+      await api.approveProject(projectId, fb);
+      await loadProjectsAndTickets();
+      onRefreshData();
+      alert('Projeto aprovado com sucesso! Status atualizado para ENTREGUE.');
+    } catch (err: any) {
+      alert(err.message || 'Erro ao aprovar projeto.');
+    } finally {
+      setIsApprovingProject(prev => ({ ...prev, [projectId]: false }));
+    }
+  };
+
+  const handleRequestChanges = async (projectId: string) => {
+    const fb = feedbackInput[projectId];
+    if (!fb || !fb.trim()) {
+      alert('Por favor descreva os ajustes necessários antes de solicitar revisão.');
+      return;
+    }
+    setIsApprovingProject(prev => ({ ...prev, [projectId]: true }));
+    try {
+      await api.requestProjectChanges(projectId, fb);
+      await loadProjectsAndTickets();
+      onRefreshData();
+      alert('Solicitação de ajustes encaminhada à equipe de desenvolvimento e aos agentes responsáveis.');
+    } catch (err: any) {
+      alert(err.message || 'Erro ao solicitar ajustes.');
+    } finally {
+      setIsApprovingProject(prev => ({ ...prev, [projectId]: false }));
+    }
+  };
+
+  const handleCreateTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTicketSubject.trim() || !newTicketDesc.trim()) return;
+    setIsCreatingTicket(true);
+    try {
+      const created = await api.createSupportTicket({
+        subject: newTicketSubject.trim(),
+        description: newTicketDesc.trim(),
+        priority: newTicketPriority,
+        category: newTicketCategory
+      });
+      setNewTicketSubject('');
+      setNewTicketDesc('');
+      setIsNewTicketOpen(false);
+      await loadProjectsAndTickets();
+      setSelectedTicketId(created.id);
+      onRefreshData();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao abrir chamado.');
+    } finally {
+      setIsCreatingTicket(false);
+    }
+  };
+
+  const handleSendTicketMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTicketId || !ticketReply.trim() || isReplying) return;
+    setIsReplying(true);
+    try {
+      await api.addTicketMessage(selectedTicketId, ticketReply.trim());
+      setTicketReply('');
+      await loadProjectsAndTickets();
+    } catch (err: any) {
+      alert(err.message || 'Erro ao enviar mensagem.');
+    } finally {
+      setIsReplying(false);
+    }
+  };
+
   if (!activeCompany) {
     return (
       <div className="p-12 text-center text-slate-400">
@@ -126,6 +242,9 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
   const companyLeads = leads.filter(l => l.companyId === activeCompany.id);
   const companyKnowledge = knowledge.filter(k => k.companyId === activeCompany.id);
   const companySub = subscriptions.find(s => s.companyId === activeCompany.id) || null;
+  const companyProjects = projects.filter(p => isMaster || p.companyId === activeCompany.id);
+  const companyTickets = supportTickets.filter(t => isMaster || t.companyId === activeCompany.id);
+  const selectedTicket = companyTickets.find(t => t.id === selectedTicketId) || companyTickets[0];
 
   // Real business metrics
   const totalLeadsValue = companyLeads.reduce((acc, l) => acc + (l.value || 0), 0);
@@ -207,7 +326,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
         )}
 
         {/* Tab Controls */}
-        <div className="p-1 glass-obsidian rounded-xl border border-purple-900/40 flex items-center gap-1 shrink-0">
+        <div className="p-1 glass-obsidian rounded-xl border border-purple-900/40 flex flex-wrap items-center gap-1 shrink-0">
           <button
             onClick={() => setActiveTab('overview')}
             className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
@@ -223,6 +342,28 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
             }`}
           >
             Implantação
+          </button>
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'projects' ? 'bg-amber-600 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>Projetos & Entregas</span>
+            <span className="px-1.5 py-0.2 bg-black/40 rounded text-[10px] font-mono-numbers">
+              {companyProjects.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('support')}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'support' ? 'bg-amber-600 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <span>Suporte & CS</span>
+            <span className="px-1.5 py-0.2 bg-black/40 rounded text-[10px] font-mono-numbers">
+              {companyTickets.length}
+            </span>
           </button>
           <button
             onClick={() => setActiveTab('assistant')}
@@ -438,6 +579,429 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* TAB: PROJETOS DE DESENVOLVIMENTO & ENTREGAS (Phase 01) */}
+      {activeTab === 'projects' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between pb-3 border-b border-purple-900/20">
+            <div>
+              <h3 className="text-base font-cinzel font-bold text-white flex items-center gap-2">
+                <Briefcase className="w-5 h-5 text-amber-400" />
+                <span>Projetos Corporativos & Acompanhamento de Entregas</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Acompanhe o cronograma, prazos de entrega, tarefas dos agentes e valide o aceite final de cada entrega.
+              </p>
+            </div>
+            <span className="text-xs font-mono-numbers px-3 py-1 glass-obsidian border border-purple-900/30 rounded-lg text-amber-300">
+              {companyProjects.length} Projetos Vinculados
+            </span>
+          </div>
+
+          {companyProjects.length === 0 ? (
+            <div className="p-12 text-center glass-obsidian rounded-2xl border border-purple-900/20 space-y-3">
+              <Layers className="w-10 h-10 text-slate-500 mx-auto" />
+              <h4 className="text-sm font-semibold text-white">Nenhum projeto em desenvolvimento</h4>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Sua empresa ainda não possui projetos customizados em andamento. Contrate diagnósticos ou automações sob medida na aba de Serviços.
+              </p>
+              {onNavigateToServices && (
+                <button
+                  onClick={onNavigateToServices}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold cursor-pointer"
+                >
+                  Ver Serviços Empresariais
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {companyProjects.map((project) => {
+                const completedTasks = project.tasks.filter(t => t.status === 'completed').length;
+                const totalTasks = project.tasks.length || 1;
+                const progressPercent = Math.round((completedTasks / totalTasks) * 100);
+                const isApproved = project.clientApprovalStatus === 'APPROVED' || project.status === 'DELIVERED';
+
+                return (
+                  <div
+                    key={project.id}
+                    className="p-6 glass-obsidian rounded-2xl border border-purple-900/30 space-y-5 hover:border-purple-600/40 transition-all"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                            project.status === 'DELIVERED'
+                              ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                              : project.status === 'CLIENT_APPROVAL'
+                              ? 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
+                              : 'bg-purple-950/80 text-purple-300 border border-purple-500/40'
+                          }`}>
+                            {project.status === 'DELIVERED' ? 'ENTREGUE' :
+                             project.status === 'CLIENT_APPROVAL' ? 'AGUARDANDO APROVAÇÃO' :
+                             project.status === 'IN_DEVELOPMENT' ? 'EM DESENVOLVIMENTO' :
+                             project.status === 'REVIEW' ? 'REVISÃO TÉCNICA' : 'PLANEJAMENTO'}
+                          </span>
+                          <span className="text-xs text-slate-400 font-mono-numbers">
+                            Prazo: {project.deadline}
+                          </span>
+                        </div>
+                        <h4 className="text-base font-cinzel font-bold text-white">{project.title}</h4>
+                        <p className="text-xs text-slate-300 mt-1 font-light leading-relaxed">{project.description}</p>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] text-slate-400 block mb-1">Progresso Geral</span>
+                        <div className="text-lg font-bold font-mono-numbers text-amber-400">{progressPercent}%</div>
+                        <span className="text-[10px] text-slate-500 font-mono-numbers">
+                          {completedTasks} de {totalTasks} etapas
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isApproved ? 'bg-emerald-500' : 'bg-gradient-to-r from-amber-500 to-purple-600'
+                        }`}
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    </div>
+
+                    {/* Tasks Checklist */}
+                    <div className="space-y-2 pt-2">
+                      <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider block">
+                        Cronograma de Tarefas & Alocação de Agentes
+                      </span>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {project.tasks.map((task) => (
+                          <div
+                            key={task.id}
+                            className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+                              task.status === 'completed'
+                                ? 'bg-emerald-950/20 border-emerald-900/30 text-emerald-200'
+                                : task.status === 'in_progress'
+                                ? 'bg-amber-950/20 border-amber-900/30 text-amber-200'
+                                : 'bg-[#07070f] border-purple-900/20 text-slate-400'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              {task.status === 'completed' ? (
+                                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                              ) : task.status === 'in_progress' ? (
+                                <Clock className="w-4 h-4 text-amber-400 shrink-0 animate-pulse" />
+                              ) : (
+                                <div className="w-4 h-4 rounded-full border border-slate-600 shrink-0" />
+                              )}
+                              <div>
+                                <span className="font-medium text-white block">{task.title}</span>
+                                <span className="text-[10px] text-slate-400 block">
+                                  Agente: {task.assignedAgent} · Limite: {task.deadline}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-[10px] uppercase font-mono-numbers font-semibold">
+                              {task.status === 'completed' ? 'Concluído' :
+                               task.status === 'in_progress' ? 'Executando' : 'Pendente'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Client Approval / Feedback Action Strip */}
+                    <div className="pt-4 border-t border-purple-900/20">
+                      {isApproved ? (
+                        <div className="p-3 bg-emerald-950/60 border border-emerald-500/40 rounded-xl text-xs text-emerald-200 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                            <span>
+                              <strong>Entrega Homologada e Aprovada pelo Cliente.</strong>{' '}
+                              {project.clientFeedback && `Comentário: "${project.clientFeedback}"`}
+                            </span>
+                          </div>
+                          {project.deliveredAt && (
+                            <span className="text-[11px] font-mono-numbers text-emerald-400 shrink-0">
+                              Aceite em {new Date(project.deliveredAt).toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="space-y-3 bg-[#07070f] p-4 rounded-xl border border-purple-900/30">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-amber-300">Aceite Formal do Cliente</span>
+                            <span className="text-slate-400">Status atual: {project.clientApprovalStatus}</span>
+                          </div>
+                          <textarea
+                            rows={2}
+                            value={feedbackInput[project.id] || ''}
+                            onChange={(e) => setFeedbackInput(prev => ({ ...prev, [project.id]: e.target.value }))}
+                            placeholder="Insira parecer ou solicitação de ajustes para a equipe e agentes..."
+                            className="w-full p-2.5 bg-black/60 border border-purple-900/30 rounded-lg text-xs text-white focus:outline-none focus:border-amber-400"
+                          />
+                          <div className="flex items-center justify-end gap-3">
+                            <button
+                              type="button"
+                              onClick={() => handleRequestChanges(project.id)}
+                              disabled={isApprovingProject[project.id]}
+                              className="px-4 py-2 border border-amber-600/50 text-amber-300 hover:text-white hover:bg-amber-950/40 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              Solicitar Ajustes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleApproveProject(project.id)}
+                              disabled={isApprovingProject[project.id]}
+                              className="px-5 py-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow disabled:opacity-50 flex items-center gap-1.5"
+                            >
+                              <Check className="w-4 h-4" />
+                              <span>{isApprovingProject[project.id] ? 'Aprovando...' : 'Aprovar Entrega Formal'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB: SUPORTE & CUSTOMER SUCCESS (Phase 01) */}
+      {activeTab === 'support' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between pb-3 border-b border-purple-900/20">
+            <div>
+              <h3 className="text-base font-cinzel font-bold text-white flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-amber-400" />
+                <span>Central de Suporte & Customer Success 24/7</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Atendimento consultivo, resolução de chamados técnicos e alinhamento contínuo com o Customer Agent.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsNewTicketOpen(true)}
+              className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow flex items-center gap-1.5"
+            >
+              <span>Abrir Novo Chamado</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Tickets Sidebar */}
+            <div className="lg:col-span-1 space-y-3">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                Seus Chamados ({companyTickets.length})
+              </span>
+              {companyTickets.length === 0 ? (
+                <div className="p-6 text-center glass-obsidian rounded-xl border border-purple-900/20 text-slate-500 text-xs">
+                  Nenhum chamado aberto.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {companyTickets.map((t) => (
+                    <div
+                      key={t.id}
+                      onClick={() => setSelectedTicketId(t.id)}
+                      className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                        selectedTicket?.id === t.id
+                          ? 'bg-amber-950/30 border-amber-500/50 shadow-md'
+                          : 'glass-obsidian border-purple-900/20 hover:border-purple-600/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-1">
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                          t.status === 'RESOLVED' || t.status === 'CLOSED'
+                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/30'
+                            : t.status === 'IN_PROGRESS'
+                            ? 'bg-amber-950 text-amber-300 border border-amber-500/30'
+                            : 'bg-purple-950 text-purple-300 border border-purple-500/30'
+                        }`}>
+                          {t.status === 'RESOLVED' ? 'RESOLVIDO' : t.status === 'IN_PROGRESS' ? 'EM ATENDIMENTO' : 'ABERTO'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono-numbers">
+                          {new Date(t.createdAt).toLocaleDateString('pt-BR')}
+                        </span>
+                      </div>
+                      <h5 className="font-semibold text-white truncate">{t.subject}</h5>
+                      <p className="text-[11px] text-slate-400 line-clamp-1 mt-0.5 font-light">{t.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ticket Thread Detail */}
+            <div className="lg:col-span-2">
+              {selectedTicket ? (
+                <div className="p-6 glass-obsidian rounded-2xl border border-purple-900/30 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-purple-900/20 gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold px-2 py-0.5 bg-purple-950/80 text-purple-300 border border-purple-500/30 rounded uppercase font-mono-numbers">
+                          {selectedTicket.category}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono-numbers">
+                          Prioridade: {selectedTicket.priority} · Agente: {selectedTicket.assignedAgent}
+                        </span>
+                      </div>
+                      <h4 className="text-base font-cinzel font-bold text-white">{selectedTicket.subject}</h4>
+                    </div>
+
+                    <span className={`text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider shrink-0 ${
+                      selectedTicket.status === 'RESOLVED' || selectedTicket.status === 'CLOSED'
+                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-amber-950/80 text-amber-300 border border-amber-500/40'
+                    }`}>
+                      {selectedTicket.status}
+                    </span>
+                  </div>
+
+                  {/* Messages History */}
+                  <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                    {selectedTicket.communicationHistory.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`p-3.5 rounded-xl text-xs space-y-1 ${
+                          msg.senderRole === 'AGENT'
+                            ? 'bg-purple-950/30 border border-purple-900/30 text-purple-200'
+                            : msg.senderRole === 'MASTER_OWNER'
+                            ? 'bg-amber-950/30 border border-amber-500/30 text-amber-100'
+                            : 'bg-[#07070f] border border-slate-800 text-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[11px] text-slate-400">
+                          <span className="font-semibold text-white">
+                            {msg.senderName} ({msg.senderRole})
+                          </span>
+                          <span className="font-mono-numbers">
+                            {new Date(msg.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="leading-relaxed font-light">{msg.message}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Reply Input */}
+                  <form onSubmit={handleSendTicketMessage} className="pt-3 border-t border-purple-900/20 space-y-2">
+                    <textarea
+                      rows={2}
+                      value={ticketReply}
+                      onChange={(e) => setTicketReply(e.target.value)}
+                      placeholder="Escreva sua resposta para o Customer Agent ou Master Owner..."
+                      className="w-full p-2.5 bg-[#07070f] border border-purple-900/30 rounded-xl text-xs text-white focus:outline-none focus:border-amber-400"
+                    />
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={isReplying || !ticketReply.trim()}
+                        className="px-5 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow disabled:opacity-50"
+                      >
+                        {isReplying ? 'Enviando...' : 'Enviar Resposta'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : (
+                <div className="p-12 text-center glass-obsidian rounded-2xl border border-purple-900/20 text-slate-400 text-xs">
+                  Selecione um chamado ao lado para ver o histórico de conversas.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* New Ticket Modal */}
+          {isNewTicketOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+              <div className="w-full max-w-lg glass-obsidian p-6 rounded-2xl border border-amber-500/40 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-purple-900/30">
+                  <h4 className="text-base font-cinzel font-bold text-white">Abrir Chamado de Suporte</h4>
+                  <button onClick={() => setIsNewTicketOpen(false)} className="text-slate-400 hover:text-white">✕</button>
+                </div>
+
+                <form onSubmit={handleCreateTicket} className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-slate-300 block mb-1 font-semibold">Assunto do Chamado:</label>
+                    <input
+                      type="text"
+                      required
+                      value={newTicketSubject}
+                      onChange={(e) => setNewTicketSubject(e.target.value)}
+                      placeholder="Ex: Dúvida na integração com CRM ou ajuste de agente"
+                      className="w-full p-2.5 bg-[#07070f] border border-purple-900/30 rounded-xl text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-slate-300 block mb-1 font-semibold">Categoria:</label>
+                      <select
+                        value={newTicketCategory}
+                        onChange={(e: any) => setNewTicketCategory(e.target.value)}
+                        className="w-full p-2.5 bg-[#07070f] border border-purple-900/30 rounded-xl text-white"
+                      >
+                        <option value="TECHNICAL">Técnico / Integração</option>
+                        <option value="AGENT_TUNING">Calibração de Agente</option>
+                        <option value="ONBOARDING">Implantação & Onboarding</option>
+                        <option value="BILLING">Faturamento / Pix</option>
+                        <option value="UPGRADE">Upgrade de Recursos</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-slate-300 block mb-1 font-semibold">Prioridade:</label>
+                      <select
+                        value={newTicketPriority}
+                        onChange={(e: any) => setNewTicketPriority(e.target.value)}
+                        className="w-full p-2.5 bg-[#07070f] border border-purple-900/30 rounded-xl text-white"
+                      >
+                        <option value="LOW">Baixa</option>
+                        <option value="MEDIUM">Média</option>
+                        <option value="HIGH">Alta</option>
+                        <option value="URGENT">Urgente</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-slate-300 block mb-1 font-semibold">Descrição Detalhada:</label>
+                    <textarea
+                      required
+                      rows={4}
+                      value={newTicketDesc}
+                      onChange={(e) => setNewTicketDesc(e.target.value)}
+                      placeholder="Descreva detalhadamente sua necessidade ou problema enfrentado..."
+                      className="w-full p-2.5 bg-[#07070f] border border-purple-900/30 rounded-xl text-white"
+                    />
+                  </div>
+
+                  <div className="pt-3 border-t border-purple-900/20 flex justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsNewTicketOpen(false)}
+                      className="px-4 py-2 text-slate-400 hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isCreatingTicket}
+                      className="px-5 py-2.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 text-white rounded-lg font-bold shadow"
+                    >
+                      {isCreatingTicket ? 'Abrindo...' : 'Protocolar Chamado'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -24,7 +24,12 @@ import {
   FlagshipProduct,
   CommercialProposal,
   CommercialPartner,
-  LeadStage
+  LeadStage,
+  DevProject,
+  DevProjectTask,
+  SupportTicket,
+  SupportTicketMessage,
+  AgentInteraction
 } from './types.js';
 
 export const apiRouter = Router();
@@ -1896,6 +1901,19 @@ apiRouter.get('/system/stats', authMiddleware, (req: AuthenticatedRequest, res: 
   const netResult = grossRevenue - totalCosts;
   const netMarginPercent = grossRevenue > 0 ? (netResult / grossRevenue) * 100 : 0;
 
+  // Operational metrics
+  const projects = data.projects || [];
+  const totalProjects = projects.length;
+  const activeProjects = projects.filter(p => p.status !== 'DELIVERED').length;
+  const deliveredProjects = projects.filter(p => p.status === 'DELIVERED').length;
+
+  const tickets = data.supportTickets || [];
+  const totalSupportTickets = tickets.length;
+  const openSupportTickets = tickets.filter(t => t.status === 'OPEN' || t.status === 'IN_PROGRESS').length;
+  const resolvedSupportTickets = tickets.filter(t => t.status === 'RESOLVED' || t.status === 'CLOSED').length;
+
+  const totalAgentInteractions = (data.agentInteractions || []).length;
+
   return res.json({
     totalCompanies,
     totalAgents,
@@ -1927,6 +1945,390 @@ apiRouter.get('/system/stats', authMiddleware, (req: AuthenticatedRequest, res: 
     pendingPixCharges: pendingPixCount,
     totalContracts,
     activeContracts,
+    totalProjects,
+    activeProjects,
+    deliveredProjects,
+    totalSupportTickets,
+    openSupportTickets,
+    resolvedSupportTickets,
+    totalAgentInteractions,
     isEmergencyPaused: data.governance.isEmergencyPaused
   });
 });
+
+// -------------------------------------------------------------
+// 12. DEVELOPMENT & PROJECTS DELIVERY WORKFLOW (Phase 01)
+// -------------------------------------------------------------
+
+apiRouter.get('/projects', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const data = db.getData();
+  const projects = data.projects || [];
+  if (req.user?.role === 'MASTER_OWNER') {
+    return res.json(projects);
+  }
+  // Client multitenant isolation
+  const userCompanyId = req.user?.companyId;
+  const filtered = projects.filter(p => p.companyId === userCompanyId);
+  return res.json(filtered);
+});
+
+apiRouter.post('/projects', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const data = db.getData();
+  if (!data.projects) data.projects = [];
+
+  const { title, description, companyId, serviceContractId, deadline, tasks } = req.body;
+  if (!title || !description) {
+    return res.status(400).json({ error: 'Título e descrição são obrigatórios.' });
+  }
+
+  const targetCompanyId = req.user?.role === 'MASTER_OWNER' 
+    ? (companyId || req.user.companyId || 'comp_vertice_tech') 
+    : req.user?.companyId;
+
+  const company = data.companies.find(c => c.id === targetCompanyId);
+
+  const newProject: DevProject = {
+    id: `proj_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    companyId: targetCompanyId || 'global',
+    companyName: company?.name || 'Cliente Corporativo',
+    serviceContractId,
+    title,
+    description,
+    assignedAgentCodename: 'SALES AGENT',
+    status: 'PLANNING',
+    tasks: Array.isArray(tasks) && tasks.length > 0 ? tasks.map((t: any, idx: number) => ({
+      id: `task_${Date.now()}_${idx}`,
+      title: t.title || `Etapa ${idx + 1}`,
+      description: t.description || '',
+      status: 'pending',
+      assignedAgent: t.assignedAgent || 'LEAD AGENT',
+      deadline: t.deadline || new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+    })) : [
+      {
+        id: `task_${Date.now()}_1`,
+        title: 'Mapeamento de Requisitos e Arquitetura',
+        status: 'in_progress',
+        assignedAgent: 'RADAR AGENT',
+        deadline: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0]
+      }
+    ],
+    deadline: deadline || new Date(Date.now() + 20 * 86400000).toISOString().split('T')[0],
+    clientApprovalStatus: 'PENDING',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  data.projects.unshift(newProject);
+  db.logAudit(
+    req.user!.email,
+    req.user!.role,
+    'PROJECT_CREATED',
+    newProject.companyId,
+    `Projeto de desenvolvimento "${newProject.title}" registrado.`
+  );
+  db.commit();
+
+  return res.status(201).json(newProject);
+});
+
+apiRouter.patch('/projects/:id/tasks/:taskId', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const { id, taskId } = req.params;
+  const { status, assignedAgent, deadline } = req.body;
+  const data = db.getData();
+  const project = (data.projects || []).find(p => p.id === id);
+
+  if (!project) {
+    return res.status(404).json({ error: 'Projeto não encontrado.' });
+  }
+
+  // Client multitenant isolation
+  if (req.user?.role !== 'MASTER_OWNER' && project.companyId !== req.user?.companyId) {
+    return res.status(403).json({ error: 'Acesso negado a este projeto.' });
+  }
+
+  const task = project.tasks.find(t => t.id === taskId);
+  if (!task) {
+    return res.status(404).json({ error: 'Tarefa não encontrada.' });
+  }
+
+  if (status) {
+    task.status = status;
+    if (status === 'completed') task.completedAt = new Date().toISOString();
+  }
+  if (assignedAgent) task.assignedAgent = assignedAgent;
+  if (deadline) task.deadline = deadline;
+
+  // Auto-progress project status
+  const allTasksDone = project.tasks.every(t => t.status === 'completed');
+  if (allTasksDone && project.status !== 'DELIVERED') {
+    project.status = 'CLIENT_APPROVAL';
+  } else if (project.tasks.some(t => t.status === 'in_progress')) {
+    project.status = 'IN_DEVELOPMENT';
+  }
+
+  project.updatedAt = new Date().toISOString();
+  db.logAudit(
+    req.user!.email,
+    req.user!.role,
+    'PROJECT_TASK_UPDATED',
+    project.companyId,
+    `Tarefa "${task.title}" atualizada para ${task.status}.`
+  );
+  db.commit();
+
+  return res.json({ project, task });
+});
+
+apiRouter.post('/projects/:id/approve', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { feedback } = req.body;
+  const data = db.getData();
+  const project = (data.projects || []).find(p => p.id === id);
+
+  if (!project) {
+    return res.status(404).json({ error: 'Projeto não encontrado.' });
+  }
+
+  if (req.user?.role !== 'MASTER_OWNER' && project.companyId !== req.user?.companyId) {
+    return res.status(403).json({ error: 'Acesso negado a este projeto.' });
+  }
+
+  project.clientApprovalStatus = 'APPROVED';
+  project.status = 'DELIVERED';
+  project.deliveredAt = new Date().toISOString();
+  project.clientFeedback = feedback || 'Projeto aprovado formalmente pelo cliente.';
+  project.updatedAt = new Date().toISOString();
+
+  // If there's an associated service contract, mark it DELIVERED
+  if (project.serviceContractId) {
+    const contract = (data.serviceContracts || []).find(c => c.id === project.serviceContractId);
+    if (contract) {
+      contract.status = 'DELIVERED';
+      contract.deliveredAt = new Date().toISOString();
+      contract.updatedAt = new Date().toISOString();
+    }
+  }
+
+  db.logAudit(
+    req.user!.email,
+    req.user!.role,
+    'PROJECT_APPROVED_BY_CLIENT',
+    project.companyId,
+    `Projeto "${project.title}" aprovado e entregue formalmente.`
+  );
+  db.commit();
+
+  return res.json({ success: true, project });
+});
+
+apiRouter.post('/projects/:id/request-changes', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { feedback } = req.body;
+  const data = db.getData();
+  const project = (data.projects || []).find(p => p.id === id);
+
+  if (!project) {
+    return res.status(404).json({ error: 'Projeto não encontrado.' });
+  }
+
+  if (req.user?.role !== 'MASTER_OWNER' && project.companyId !== req.user?.companyId) {
+    return res.status(403).json({ error: 'Acesso negado a este projeto.' });
+  }
+
+  project.clientApprovalStatus = 'CHANGES_REQUESTED';
+  project.status = 'IN_DEVELOPMENT';
+  project.clientFeedback = feedback || 'Solicitação de ajustes enviada pelo cliente.';
+  project.updatedAt = new Date().toISOString();
+
+  db.logAudit(
+    req.user!.email,
+    req.user!.role,
+    'PROJECT_CHANGES_REQUESTED',
+    project.companyId,
+    `Ajustes solicitados no projeto "${project.title}": ${feedback}`
+  );
+  db.commit();
+
+  return res.json({ success: true, project });
+});
+
+// -------------------------------------------------------------
+// 13. CUSTOMER SUCCESS & SUPPORT TICKETS (Phase 01)
+// -------------------------------------------------------------
+
+apiRouter.get('/support/tickets', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const data = db.getData();
+  const tickets = data.supportTickets || [];
+  if (req.user?.role === 'MASTER_OWNER') {
+    return res.json(tickets);
+  }
+  const userCompanyId = req.user?.companyId;
+  const filtered = tickets.filter(t => t.companyId === userCompanyId);
+  return res.json(filtered);
+});
+
+apiRouter.post('/support/tickets', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const data = db.getData();
+  if (!data.supportTickets) data.supportTickets = [];
+
+  const { subject, description, priority, category } = req.body;
+  if (!subject || !description) {
+    return res.status(400).json({ error: 'Assunto e descrição são obrigatórios.' });
+  }
+
+  const company = data.companies.find(c => c.id === req.user?.companyId) || data.companies[0];
+
+  const newTicket: SupportTicket = {
+    id: `ticket_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    companyId: req.user?.companyId || 'global',
+    companyName: company?.name || 'Cliente Corporativo',
+    customerEmail: req.user!.email,
+    subject,
+    description,
+    priority: priority || 'MEDIUM',
+    status: 'OPEN',
+    category: category || 'TECHNICAL',
+    assignedAgent: 'CUSTOMER AGENT',
+    communicationHistory: [
+      {
+        id: `msg_${Date.now()}_0`,
+        senderEmail: req.user!.email,
+        senderName: req.user!.name || req.user!.email,
+        senderRole: req.user?.role === 'MASTER_OWNER' ? 'MASTER_OWNER' : 'CLIENT',
+        message: description,
+        timestamp: new Date().toISOString()
+      }
+    ],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  data.supportTickets.unshift(newTicket);
+  db.logAudit(
+    req.user!.email,
+    req.user!.role,
+    'SUPPORT_TICKET_OPENED',
+    newTicket.companyId,
+    `Chamado de suporte "${newTicket.subject}" aberto.`
+  );
+  db.commit();
+
+  return res.status(201).json(newTicket);
+});
+
+apiRouter.post('/support/tickets/:id/messages', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { message } = req.body;
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: 'Mensagem não pode ser vazia.' });
+  }
+
+  const data = db.getData();
+  const ticket = (data.supportTickets || []).find(t => t.id === id);
+
+  if (!ticket) {
+    return res.status(404).json({ error: 'Chamado não encontrado.' });
+  }
+
+  if (req.user?.role !== 'MASTER_OWNER' && ticket.companyId !== req.user?.companyId) {
+    return res.status(403).json({ error: 'Acesso negado a este chamado.' });
+  }
+
+  const senderRole = req.user?.role === 'MASTER_OWNER' ? 'MASTER_OWNER' : 'CLIENT';
+  ticket.communicationHistory.push({
+    id: `msg_${Date.now()}`,
+    senderEmail: req.user!.email,
+    senderName: req.user!.name || req.user!.email,
+    senderRole,
+    message: message.trim(),
+    timestamp: new Date().toISOString()
+  });
+
+  ticket.updatedAt = new Date().toISOString();
+  if (ticket.status === 'RESOLVED') ticket.status = 'IN_PROGRESS';
+
+  db.commit();
+  return res.json({ success: true, ticket });
+});
+
+apiRouter.patch('/support/tickets/:id/status', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const { status, satisfactionRating } = req.body;
+  const data = db.getData();
+  const ticket = (data.supportTickets || []).find(t => t.id === id);
+
+  if (!ticket) {
+    return res.status(404).json({ error: 'Chamado não encontrado.' });
+  }
+
+  if (req.user?.role !== 'MASTER_OWNER' && ticket.companyId !== req.user?.companyId) {
+    return res.status(403).json({ error: 'Acesso negado a este chamado.' });
+  }
+
+  if (status) {
+    ticket.status = status;
+    if (status === 'RESOLVED' || status === 'CLOSED') {
+      ticket.resolvedAt = new Date().toISOString();
+    }
+  }
+
+  if (satisfactionRating) {
+    ticket.satisfactionRating = Math.max(1, Math.min(5, Number(satisfactionRating)));
+  }
+
+  ticket.updatedAt = new Date().toISOString();
+  db.logAudit(
+    req.user!.email,
+    req.user!.role,
+    'SUPPORT_TICKET_STATUS_UPDATED',
+    ticket.companyId,
+    `Status do chamado "${ticket.subject}" alterado para ${ticket.status}.`
+  );
+  db.commit();
+
+  return res.json({ success: true, ticket });
+});
+
+// -------------------------------------------------------------
+// 14. AUTONOMOUS MULTI-AGENT COLLABORATION BUS (Phase 01)
+// -------------------------------------------------------------
+
+apiRouter.get('/agents/exchange', authMiddleware, (req: AuthenticatedRequest, res: Response) => {
+  const data = db.getData();
+  return res.json(data.agentInteractions || []);
+});
+
+apiRouter.post('/agents/exchange/run-cycle', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const result = await agentEngine.executeInterAgentCycle(req.user!.email);
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Falha ao executar ciclo colaborativo de agentes.' });
+  }
+});
+
+apiRouter.post('/agents/exchange/:id/approve', authMiddleware, masterOwnerOnly, (req: AuthenticatedRequest, res: Response) => {
+  const { id } = req.params;
+  const data = db.getData();
+  const interaction = (data.agentInteractions || []).find(i => i.id === id);
+
+  if (!interaction) {
+    return res.status(404).json({ error: 'Interação não encontrada.' });
+  }
+
+  interaction.status = 'PROCESSED';
+  interaction.masterApprovedAt = new Date().toISOString();
+  interaction.masterApprovedBy = req.user!.email;
+
+  db.logAudit(
+    req.user!.email,
+    'MASTER_OWNER',
+    'INTERACTION_MASTER_APPROVED',
+    'global',
+    `Ação inter-agente "${interaction.subject}" formalmente autorizada pelo Master Owner.`
+  );
+  db.commit();
+
+  return res.json({ success: true, interaction });
+});
+
